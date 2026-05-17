@@ -99,23 +99,23 @@ flowchart TD
 ```json
 {
   "packet_id": 1024,
-  "track_section": "KM-42-DELHI",
-  "temperature_c": 32.4,
-  "deflection_pct": 12.5,
-  "distance_cm": 31.8,
+  "section": "KM-42-DELHI",
+  "temperature": 32.4,
+  "deflection": 12.5,
+  "distance": 31.8,
   "status": "CAUTION"
 }
 ```
 
 | Field | Type | Required | Valid Range |
 |-------|------|----------|-------------|
-| packet_id | int | yes | >= 0 |
-| track_section | string | no | default: "KM-42-DELHI" |
-| temperature_c | float | yes | -40.0 to 125.0 |
-| deflection_pct | float | yes | 0.0 to 100.0 |
-| distance_cm | float | yes | 0.0 to 400.0 |
-| status | string | no | NOMINAL, CAUTION, CRITICAL |
-| timestamp | string | no | ISO-8601, auto-generated if omitted |
+| packet_id | bigint | yes | >= 0 |
+| section | text | no | default: "KM-42-DELHI" |
+| temperature | double precision | yes | -40.0 to 125.0 |
+| deflection | double precision | yes | 0.0 to 100.0 |
+| distance | double precision | yes | 0.0 to 400.0 |
+| status | text | no | NOMINAL, CAUTION, CRITICAL |
+| created_at | timestamptz | no | auto-generated if omitted |
 
 ### FastAPI Analysis Response: POST /api/alerts/{id}/analyze
 
@@ -140,21 +140,20 @@ flowchart TD
 ```mermaid
 erDiagram
     track_alerts {
-        int id PK
-        int packet_id
-        string track_section
-        float temperature_c
-        float deflection_pct
-        float distance_cm
-        string status
-        timestamp timestamp
+        bigint id PK
+        timestamptz created_at
+        bigint packet_id
+        text section
+        double_precision temperature
+        double_precision deflection
+        double_precision distance
+        text status
     }
 
     railway_knowledge_base {
-        int id PK
-        string document_name
-        string section_title
+        bigint id PK
         text content
-        vector_384 embedding
+        jsonb metadata
+        vector embedding
     }
 ```
