@@ -149,7 +149,6 @@ erDiagram
         double_precision distance
         text status
     }
-
     railway_knowledge_base {
         bigint id PK
         text content
