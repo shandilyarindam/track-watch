@@ -1,9 +1,5 @@
-# edge_detector_debug.py
-# DEBUG script for railway track tampering detection
-# Run this to diagnose WHY HIGH persists
-
 RECOVERY_MODE = False
-RECOVERY_FREEZE = 4   # windows to ignore model during recovery
+RECOVERY_FREEZE = 4
 recovery_counter = 0
 
 import warnings
@@ -13,23 +9,21 @@ import numpy as np
 from collections import deque
 import time
 
-# ---------- load model bundle ----------
-bundle = joblib.load("trained_model.pkl")  # or "railway_models_bundle.pkl"
+bundle = joblib.load("trained_model.pkl")
 iforest = bundle["iforest"]
 lof = bundle["lof"]
 scaler = bundle["scaler"]
 features_list = bundle.get("features", None)
 print("LOADED FEATURES LIST:", features_list)
 
-# ---------- config ----------
-WINDOW_SIZE = 10    # shorten for quicker demo checks
+WINDOW_SIZE = 10
 MIN_WARMUP = 3
-COOLDOWN_COUNT = 6  # shorter for demo
+COOLDOWN_COUNT = 6
 window = deque(maxlen=WINDOW_SIZE)
 last_state = "NORMAL"
 normal_counter = 0
 
-# ---------- feature extractor (same as notebook) ----------
+
 def extract_features(win):
     arr = np.array(win)
     distance = arr[:, 0]
@@ -88,12 +82,9 @@ def detect_and_print(distance, flex, temperature, pir, step):
         print(f"{step:02d} | WARMING_UP  | window_len={len(window)}")
         return
 
-    # ---------- MODEL DECISION ----------
     state, iso_score, lof_score, combined, if_pred, lof_pred, feat, feat_scaled = classify_window_and_debug()
 
-    # ---------- RECOVERY LOGIC ----------
     if last_state == "HIGH":
-        # Enter recovery mode once model suggests NORMAL
         if state == "NORMAL" and not RECOVERY_MODE:
             RECOVERY_MODE = True
             recovery_counter = 0
@@ -101,7 +92,6 @@ def detect_and_print(distance, flex, temperature, pir, step):
         if RECOVERY_MODE:
             recovery_counter += 1
             display_state = "HIGH"
-            # After freeze windows, allow downgrade
             if recovery_counter >= RECOVERY_FREEZE:
                 RECOVERY_MODE = False
                 normal_counter = 1
@@ -116,15 +106,14 @@ def detect_and_print(distance, flex, temperature, pir, step):
 
     last_state = display_state
 
-    # ---------- PRINT ----------
     print(f"{step:02d} | {display_state:6} | combined={combined: .3f} | iso={iso_score: .3f} lof={lof_score: .3f} | if_pred={if_pred} lof_pred={lof_pred}")
     print(f"     RAW_FEAT   : {np.round(feat,3)}")
     print(f"     SCALED_FEAT: {np.round(feat_scaled,3)}")
     print(f"     WINDOW_LAST(3): {list(window)[-3:]}")
 
-# ---------- deterministic 3-phase simulation ----------
+
 if __name__ == "__main__":
-    print("\n=== DEBUG RUN START ===\nPhase: 0..24 NORMAL, 25..54 TAMPER, 55..84 RECOVER\n")
+    print("\nDEBUG RUN: 0..24 NORMAL, 25..54 TAMPER, 55..84 RECOVER\n")
     for i in range(85):
         if i < 25:
             flex = 606 + np.random.normal(0, 0.5)
@@ -145,4 +134,4 @@ if __name__ == "__main__":
         detect_and_print(distance=distance, flex=flex, temperature=temp, pir=pir, step=i)
         time.sleep(0.05)
 
-    print("\n=== DEBUG RUN END ===\n")
+    print("\nDEBUG RUN END\n")

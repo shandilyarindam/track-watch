@@ -1,3 +1,6 @@
+// Track-Watch Sensor Node — ESP32-S3
+// Samples LM35 + flex + HC-SR04 + PIR, transmits via ESP-NOW to fog gateway
+
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
@@ -16,17 +19,16 @@ const int   FLEX_THRESHOLD       = 2200;
 const float DISTANCE_THRESHOLD   = 20.0f;
 const float TEMP_ALERT_THRESHOLD = 58.0f;
 
-// Fog node MAC address
 uint8_t fogNodeMAC[] = {0xAC, 0xA7, 0x04, 0x15, 0x04, 0xAC};
 
-// Enforce explicit byte sizes for cross-chip compatibility
+// Must match fog node struct — pragma pack for cross-chip byte alignment
 #pragma pack(push, 1)
 typedef struct {
-  uint32_t counter;   // 4 bytes
-  float distance;     // 4 bytes
-  int32_t flexRaw;    // 4 bytes
-  float temp;         // 4 bytes
-  int32_t motion;     // 4 bytes
+  uint32_t counter;
+  float distance;
+  int32_t flexRaw;
+  float temp;
+  int32_t motion;
 } SensorData;
 #pragma pack(pop)
 
@@ -38,7 +40,6 @@ unsigned long lastBlink   = 0;
 bool ledState = false;
 
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  // silent — don't block serial output
 }
 
 void setup() {
@@ -69,7 +70,6 @@ void setup() {
   esp_now_add_peer(&peerInfo);
 
   Serial.println("timestamp,distance_cm,flex_raw,temp_C,motion");
-  Serial.println("--------,-----------,--------,------,------");
 }
 
 void loop() {
@@ -93,7 +93,6 @@ void loop() {
 
     int motion = digitalRead(PIR_PIN);
 
-    // Send via ESP-NOW
     sensorData.counter  = counter;
     sensorData.distance = distance;
     sensorData.flexRaw  = flexRaw;
@@ -101,7 +100,6 @@ void loop() {
     sensorData.motion   = motion;
     esp_now_send(fogNodeMAC, (uint8_t *)&sensorData, sizeof(sensorData));
 
-    // Serial logging
     Serial.print(counter);           Serial.print(",");
     Serial.print(distance, 1);       Serial.print(",");
     Serial.print(flexRaw);           Serial.print(",");
@@ -109,7 +107,7 @@ void loop() {
     Serial.println(motion);
   }
 
-  // LED blink logic
+  // Blink LED on threshold breach for visual field indication
   digitalWrite(TRIG_PIN, LOW); delayMicroseconds(4);
   digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);

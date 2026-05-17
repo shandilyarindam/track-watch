@@ -1,77 +1,41 @@
-# ===============================
-# Python cache / bytecode
-# ===============================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# ===============================
-# Virtual environments
-# ===============================
 venv/
 env/
 .venv/
 
-# ===============================
-# Jupyter
-# ===============================
 .ipynb_checkpoints/
 
-# ===============================
-# Logs & temp files
-# ===============================
 *.log
 *.tmp
 *.bak
 *.cache
 
-# ===============================
-# Streamlit secrets (local only)
-# ===============================
 .streamlit/secrets.toml
 
-# ===============================
-# OS junk
-# ===============================
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ===============================
-# Editor junk
-# ===============================
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# ===============================
-# Python tooling
-# ===============================
 .pytest_cache/
 .mypy_cache/
 
-# ===============================
-# Node / frontend (if added later)
-# ===============================
 node_modules/
 
-# ===============================
-# Arduino build artifacts
-# ===============================
 *.hex
 *.elf
 
-# ===============================
-# Backend secrets & model cache
-# ===============================
 backend/.env
 .env
 *.onnx
 sentence-transformers/
 
-# ===============================
-# Hardware firmware secrets
-# ===============================
 **/secrets.h

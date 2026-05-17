@@ -1,17 +1,6 @@
 """
-Track-Watch — RAG Document Ingestion Script
-=============================================
-Standalone CLI tool that processes local text/markdown files representing
-Indian Railways maintenance manuals and RDSO circulars, then ingests them
-into the ``railway_knowledge_base`` table in Supabase with 384-dim embeddings.
+Ingest RDSO maintenance manuals into the RAG knowledge base.
 
-Pipeline:
-    1. Scan ``KNOWLEDGE_DOCS_DIR`` for .txt and .md files.
-    2. Chunk each document into ~500-char blocks with 50-char overlap.
-    3. Generate embeddings via sentence-transformers/all-MiniLM-L6-v2 (local).
-    4. Batch-insert chunks + embeddings into Supabase.
-
-Usage:
     python ingest_docs.py
     python ingest_docs.py --docs-dir ./my_manuals
 """
@@ -28,9 +17,6 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from supabase import create_client, Client
 
-# ──────────────────────────────────────────────
-# Configuration
-# ──────────────────────────────────────────────
 load_dotenv()
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
@@ -40,15 +26,12 @@ EMBEDDING_MODEL: str = os.getenv(
 )
 KNOWLEDGE_DOCS_DIR: str = os.getenv("KNOWLEDGE_DOCS_DIR", "./knowledge_docs")
 
-CHUNK_SIZE: int = 500        # characters per chunk
-CHUNK_OVERLAP: int = 50      # overlap between consecutive chunks
-BATCH_SIZE: int = 25         # rows per Supabase insert call
+CHUNK_SIZE: int = 500
+CHUNK_OVERLAP: int = 50
+BATCH_SIZE: int = 25
 
 SUPPORTED_EXTENSIONS: set[str] = {".txt", ".md"}
 
-# ──────────────────────────────────────────────
-# Logging
-# ──────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -57,20 +40,11 @@ logging.basicConfig(
 logger = logging.getLogger("track-watch.ingest")
 
 
-# ──────────────────────────────────────────────
-# Chunking
-# ──────────────────────────────────────────────
 def chunk_text(
     text: str,
     chunk_size: int = CHUNK_SIZE,
     overlap: int = CHUNK_OVERLAP,
 ) -> list[str]:
-    """
-    Split ``text`` into overlapping chunks of approximately ``chunk_size``
-    characters. Each chunk overlaps the previous one by ``overlap`` chars.
-
-    Returns a list of non-empty string chunks.
-    """
     chunks: list[str] = []
     start = 0
     text_len = len(text)
@@ -78,21 +52,18 @@ def chunk_text(
     while start < text_len:
         end = start + chunk_size
 
-        # Try to break at the last newline or sentence boundary within range
         if end < text_len:
-            # Look for a natural break point near the end of the chunk
             last_newline = text.rfind("\n", start, end)
             last_period = text.rfind(". ", start, end)
             break_point = max(last_newline, last_period)
 
             if break_point > start:
-                end = break_point + 1  # include the newline or period
+                end = break_point + 1
 
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
 
-        # Advance by (chunk length - overlap) to create overlapping windows
         step = max(1, (end - start) - overlap)
         start += step
 
@@ -100,13 +71,8 @@ def chunk_text(
 
 
 def extract_section_title(chunk: str) -> str:
-    """
-    Attempt to extract a section heading from the first line of a chunk.
-    Falls back to the first 60 characters if no heading marker is found.
-    """
     first_line = chunk.split("\n", 1)[0].strip()
 
-    # Markdown headings
     if first_line.startswith("#"):
         return first_line.lstrip("#").strip()
 
@@ -114,32 +80,20 @@ def extract_section_title(chunk: str) -> str:
     if first_line.isupper() and len(first_line) < 120:
         return first_line
 
-    return first_line[:60] + ("…" if len(first_line) > 60 else "")
+    return first_line[:60] + ("..." if len(first_line) > 60 else "")
 
 
-# ──────────────────────────────────────────────
-# Main Ingestion Pipeline
-# ──────────────────────────────────────────────
 def run_ingestion(docs_dir: str) -> None:
-    """Execute the full ingestion pipeline."""
     docs_path = Path(docs_dir).resolve()
 
-    # ── Validate environment ─────────────────────────────────
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        logger.error(
-            "SUPABASE_URL and SUPABASE_ANON_KEY must be set.  "
-            "Copy .env.example → .env and fill in your credentials."
-        )
+        logger.error("SUPABASE_URL and SUPABASE_ANON_KEY must be set.")
         sys.exit(1)
 
     if not docs_path.is_dir():
         logger.error("Documents directory not found: %s", docs_path)
-        logger.info(
-            "Create the directory and place your .txt/.md maintenance manuals inside."
-        )
         sys.exit(1)
 
-    # ── Discover files ───────────────────────────────────────
     doc_files = sorted(
         f
         for f in docs_path.iterdir()
@@ -147,54 +101,45 @@ def run_ingestion(docs_dir: str) -> None:
     )
 
     if not doc_files:
-        logger.warning(
-            "No .txt or .md files found in %s — nothing to ingest.", docs_path
-        )
+        logger.warning("No .txt or .md files found in %s", docs_path)
         sys.exit(0)
 
     logger.info("Found %d document(s) in %s", len(doc_files), docs_path)
 
-    # ── Initialise services ──────────────────────────────────
-    logger.info("Connecting to Supabase → %s", SUPABASE_URL)
+    logger.info("Connecting to Supabase -> %s", SUPABASE_URL)
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-    logger.info("Loading embedding model: %s …", EMBEDDING_MODEL)
+    logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
     embedder = SentenceTransformer(EMBEDDING_MODEL)
     embedding_dim = embedder.get_sentence_embedding_dimension()
-    logger.info("Embedding model ready  →  dim=%d", embedding_dim)
+    logger.info("Embedding model ready -> dim=%d", embedding_dim)
 
-    # ── Process each document ────────────────────────────────
     total_chunks_inserted = 0
 
     for doc_file in doc_files:
         doc_name = doc_file.name
-        logger.info("━" * 60)
         logger.info("Processing: %s", doc_name)
 
         try:
             raw_text = doc_file.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            logger.warning(
-                "Skipping %s — could not decode as UTF-8.", doc_name
-            )
+            logger.warning("Skipping %s -- could not decode as UTF-8.", doc_name)
             continue
 
         if not raw_text.strip():
-            logger.warning("Skipping %s — file is empty.", doc_name)
+            logger.warning("Skipping %s -- file is empty.", doc_name)
             continue
 
         chunks = chunk_text(raw_text)
         logger.info("  Chunked into %d blocks (size=%d, overlap=%d)", len(chunks), CHUNK_SIZE, CHUNK_OVERLAP)
 
-        # ── Generate embeddings for all chunks ───────────────
-        logger.info("  Generating embeddings …")
+        logger.info("  Generating embeddings")
         try:
             embeddings = embedder.encode(chunks, show_progress_bar=True, batch_size=32)
         except Exception as exc:
-            logger.exception("  Embedding failed for %s — skipping.", doc_name)
+            logger.exception("  Embedding failed for %s -- skipping.", doc_name)
             continue
 
-        # ── Prepare rows ─────────────────────────────────────
         rows: list[dict] = []
         for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             section_title = extract_section_title(chunk)
@@ -207,8 +152,7 @@ def run_ingestion(docs_dir: str) -> None:
                 }
             )
 
-        # ── Batch insert into Supabase ───────────────────────
-        logger.info("  Inserting %d rows into railway_knowledge_base …", len(rows))
+        logger.info("  Inserting %d rows into railway_knowledge_base", len(rows))
         inserted_count = 0
 
         for batch_start in range(0, len(rows), BATCH_SIZE):
@@ -221,41 +165,27 @@ def run_ingestion(docs_dir: str) -> None:
                 )
                 inserted_count += len(result.data) if result.data else 0
             except Exception as exc:
-                logger.error(
-                    "  Batch insert failed at offset %d: %s", batch_start, exc
-                )
-                logger.info("  Continuing with remaining batches …")
+                logger.error("  Batch insert failed at offset %d: %s", batch_start, exc)
 
-        logger.info(
-            "  ✓ Inserted %d / %d chunks for %s",
-            inserted_count,
-            len(rows),
-            doc_name,
-        )
+        logger.info("  Inserted %d / %d chunks for %s", inserted_count, len(rows), doc_name)
         total_chunks_inserted += inserted_count
 
-    # ── Summary ──────────────────────────────────────────────
-    logger.info("━" * 60)
     logger.info(
-        "Ingestion complete.  Total chunks inserted: %d across %d document(s).",
+        "Ingestion complete. Total chunks: %d across %d document(s).",
         total_chunks_inserted,
         len(doc_files),
     )
 
 
-# ──────────────────────────────────────────────
-# CLI Entrypoint
-# ──────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Ingest railway maintenance documents into the Track-Watch RAG knowledge base.",
+        description="Ingest documents into Track-Watch RAG knowledge base.",
     )
     parser.add_argument(
         "--docs-dir",
         type=str,
         default=KNOWLEDGE_DOCS_DIR,
-        help=f"Path to the directory containing .txt/.md documents (default: {KNOWLEDGE_DOCS_DIR})",
+        help=f"Path to document directory (default: {KNOWLEDGE_DOCS_DIR})",
     )
     args = parser.parse_args()
-
     run_ingestion(args.docs_dir)

@@ -1,235 +1,572 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Track-Watch | Railway Monitoring Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        
-        body {
-            font-family: 'Inter', sans-serif;
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRACK-WATCH | Railway Safety Monitoring Console</title>
+  <meta name="description" content="Edge-to-cloud railway track safety monitoring console with RAG-grounded regulatory analysis.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { mono: ['JetBrains Mono', 'monospace'], sans: ['Inter', 'sans-serif'] },
+          colors: {
+            surface: { bg: '#0a0a0a', card: '#111111', border: '#1f1f1f', hover: '#1a1a1a', deep: '#0d0d0d' },
+            status: { nominal: '#22c55e', caution: '#f59e0b', critical: '#ef4444' },
+          }
         }
-        
-        .scrollbar-thin::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .scrollbar-thin::-webkit-scrollbar-track {
-            background: #f1f5f9;
-            border-radius: 3px;
-        }
-        
-        .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
-        
-        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-        
-        .markdown-content h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: #1e293b;
-        }
-        
-        .markdown-content h2 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            color: #334155;
-        }
-        
-        .markdown-content h3 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #475569;
-        }
-        
-        .markdown-content p {
-            margin-bottom: 0.75rem;
-            line-height: 1.6;
-            color: #64748b;
-        }
-        
-        .markdown-content ul {
-            list-style-type: disc;
-            margin-left: 1.5rem;
-            margin-bottom: 0.75rem;
-            color: #64748b;
-        }
-        
-        .markdown-content ol {
-            list-style-type: decimal;
-            margin-left: 1.5rem;
-            margin-bottom: 0.75rem;
-            color: #64748b;
-        }
-        
-        .markdown-content li {
-            margin-bottom: 0.25rem;
-        }
-        
-        .markdown-content strong {
-            font-weight: 600;
-            color: #1e293b;
-        }
-        
-        .markdown-content code {
-            background: #f1f5f9;
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
-            font-size: 0.875rem;
-            color: #475569;
-        }
-        
-        .loading-spinner {
-            border: 3px solid #f3f4f6;
-            border-top: 3px solid #3b82f6;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; }
+
+    @keyframes pulse-critical { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+    @keyframes blink-live { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+    @keyframes fade-in { from{opacity:0;transform:translateY(-6px);} to{opacity:1;transform:translateY(0);} }
+    @keyframes terminal-cursor { 0%,100%{opacity:1;} 50%{opacity:0;} }
+
+    .pulse-critical { animation: pulse-critical 1.2s ease-in-out infinite; }
+    .blink-live { animation: blink-live 1.5s ease-in-out infinite; }
+    .fade-in { animation: fade-in 0.25s ease-out; }
+
+    .terminal-cursor::after {
+      content: '_';
+      animation: terminal-cursor 0.8s step-end infinite;
+      color: #f59e0b;
+      margin-left: 2px;
+    }
+
+    .feed-card {
+      transition: background-color 0.12s ease, border-color 0.12s ease;
+      cursor: pointer;
+    }
+    .feed-card:hover { background-color: #1a1a1a; }
+    .feed-card.selected { background-color: #151515; border-color: #333 !important; }
+
+    .scrollbar-thin::-webkit-scrollbar { width: 3px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #2a2a2a; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+    .rdso-citation {
+      color: #f59e0b;
+      font-weight: 600;
+      background: rgba(245, 158, 11, 0.08);
+      padding: 1px 4px;
+    }
+
+    .report-block h1,.report-block h2,.report-block h3 { color: #e5e7eb; margin: 0.8em 0 0.3em; }
+    .report-block h1 { font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+    .report-block h2 { font-size: 0.75rem; font-weight: 600; }
+    .report-block h3 { font-size: 0.6875rem; font-weight: 600; color: #a1a1aa; }
+    .report-block p { color: #9ca3af; margin: 0.35em 0; line-height: 1.65; font-size: 0.6875rem; }
+    .report-block ul,.report-block ol { color: #9ca3af; margin: 0.35em 0 0.35em 1.1rem; font-size: 0.6875rem; }
+    .report-block li { margin-bottom: 0.15em; line-height: 1.55; }
+    .report-block strong { color: #e5e7eb; font-weight: 600; }
+  </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
-    <div class="flex h-screen">
-        <!-- Main Content Area -->
-        <div class="flex-1 flex flex-col">
-            <!-- Header -->
-            <header class="bg-white border-b border-slate-200 px-6 py-4">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <h1 class="text-xl font-semibold text-slate-800">Track-Watch</h1>
-                            <p class="text-sm text-slate-500">Railway Track Health Monitoring</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-4">
-                        <div class="flex items-center gap-2 text-sm">
-                            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            <span class="text-slate-600">Backend Online</span>
-                        </div>
-                        <button id="refreshBtn" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">
-                            Refresh
-                        </button>
-                    </div>
-                </div>
-            </header>
+<body class="h-screen flex flex-col overflow-hidden bg-[#0a0a0a] text-[#e5e7eb] font-sans">
 
-            <!-- Telemetry Stream -->
-            <main class="flex-1 overflow-hidden p-6">
-                <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-slate-800 mb-1">Live Telemetry Stream</h2>
-                    <p class="text-sm text-slate-500">Real-time alerts from railway track sensors</p>
-                </div>
-                
-                <div id="alertContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto scrollbar-thin" style="max-height: calc(100vh - 200px);">
-                    <!-- Alert cards will be injected here -->
-                </div>
-                
-                <div id="emptyState" class="hidden flex-col items-center justify-center h-64">
-                    <svg class="w-16 h-16 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
-                    </svg>
-                    <p class="text-slate-400">No telemetry data available</p>
-                    <button id="loadTelemetry" class="mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
-                        Load Telemetry
-                    </button>
-                </div>
-            </main>
-        </div>
+  <!-- ═══ TOP BAR ═══ -->
+  <header class="h-12 min-h-[48px] bg-[#111111] border-b border-[#1f1f1f] flex items-center justify-between px-5 shrink-0 select-none">
+    <div class="flex items-center gap-4">
+      <span class="font-mono text-[13px] font-bold tracking-[0.08em] text-white">TRACK-WATCH</span>
+      <span class="font-mono text-[10px] text-neutral-700">v1.0.0</span>
+      <div class="w-px h-4 bg-[#1f1f1f] mx-1"></div>
+      <div class="flex items-center gap-1.5">
+        <div id="apiDot" class="w-[7px] h-[7px] rounded-full bg-neutral-700"></div>
+        <span id="apiLabel" class="font-mono text-[10px] text-neutral-600">CONNECTING</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-5">
+      <span id="alertCounter" class="font-mono text-[10px] text-neutral-600"></span>
+      <span id="pollStamp" class="font-mono text-[10px] text-neutral-700"></span>
+      <div class="flex items-center gap-1.5">
+        <div class="w-[6px] h-[6px] rounded-full bg-status-nominal blink-live"></div>
+        <span class="font-mono text-[10px] text-neutral-500 font-medium">LIVE</span>
+      </div>
+    </div>
+  </header>
 
-        <!-- Side Panel -->
-        <aside id="sidePanel" class="hidden w-[480px] bg-white border-l border-slate-200 flex flex-col">
-            <!-- Panel Header -->
-            <div class="px-6 py-4 border-b border-slate-200">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-slate-800">Alert Details</h3>
-                    <button id="closePanel" class="p-1 hover:bg-slate-100 rounded-lg transition-colors">
-                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
-                </div>
-                <div id="panelAlertId" class="text-sm text-slate-500"></div>
-            </div>
+  <!-- ═══ SPLIT PANE ═══ -->
+  <div class="flex flex-1 overflow-hidden">
 
-            <!-- Panel Content -->
-            <div class="flex-1 overflow-y-auto scrollbar-thin">
-                <!-- Raw Telemetry Metrics -->
-                <div class="px-6 py-4 border-b border-slate-200">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                        </svg>
-                        Raw Telemetry Metrics
-                    </h4>
-                    <div id="telemetryMetrics" class="space-y-2">
-                        <!-- Metrics will be injected here -->
-                    </div>
-                </div>
-
-                <!-- Analyze Button -->
-                <div class="px-6 py-4 border-b border-slate-200">
-                    <button id="analyzeBtn" class="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg font-medium transition-all flex items-center justify-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                        </svg>
-                        Analyze Alert with RAG Pipeline
-                    </button>
-                    <div id="analyzeLoading" class="hidden mt-3 flex items-center justify-center gap-2 text-sm text-slate-600">
-                        <div class="loading-spinner"></div>
-                        <span>Running RAG analysis with Ollama...</span>
-                    </div>
-                </div>
-
-                <!-- Seeded Reference Context -->
-                <div id="contextSection" class="hidden px-6 py-4 border-b border-slate-200">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                        </svg>
-                        Seeded Reference Context
-                        <span id="matchedCount" class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs"></span>
-                    </h4>
-                    <div id="referenceContext" class="space-y-3">
-                        <!-- Context blocks will be injected here -->
-                    </div>
-                </div>
-
-                <!-- Grounded Maintenance Action Plan -->
-                <div id="analysisSection" class="hidden px-6 py-4">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        Grounded Maintenance Action Plan
-                    </h4>
-                    <div id="maintenancePlan" class="markdown-content text-sm">
-                        <!-- Markdown content will be injected here -->
-                    </div>
-                </div>
-            </div>
-        </aside>
+    <!-- LEFT: Telemetry Feed Stream -->
+    <div class="w-2/5 border-r border-[#1f1f1f] overflow-y-auto scrollbar-thin p-4 flex flex-col gap-0" id="feedColumn">
+      <div class="mb-3 shrink-0">
+        <div class="text-[11px] font-semibold text-neutral-400 tracking-wide uppercase">Incoming Telemetry</div>
+        <div class="text-[10px] text-neutral-700 font-mono mt-0.5">sorted by id desc / 3s poll</div>
+      </div>
+      <div id="feedList" class="flex flex-col gap-[6px]"></div>
+      <div id="feedEmpty" class="hidden flex-1 flex items-center justify-center">
+        <span class="font-mono text-[11px] text-neutral-700">Awaiting sensor packets...</span>
+      </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- RIGHT: Command & Audit Console -->
+    <div class="w-3/5 bg-[#0d0d0d] overflow-y-auto scrollbar-thin p-6 flex flex-col" id="rightPane">
+
+      <!-- Empty state -->
+      <div id="consoleEmpty" class="flex-1 flex flex-col items-center justify-center gap-3">
+        <div class="w-10 h-10 border border-[#1f1f1f] flex items-center justify-center">
+          <svg class="w-5 h-5 text-neutral-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-width="1.5" d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        </div>
+        <span class="font-mono text-[11px] text-neutral-600">Select an alert from the feed to inspect</span>
+      </div>
+
+      <!-- Active console (hidden until selection) -->
+      <div id="consoleActive" class="hidden flex flex-col gap-5">
+
+        <!-- Alert Header -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <span id="cAlertId" class="font-mono text-[18px] font-bold text-white"></span>
+              <div id="cStatusBadge" class="flex items-center gap-1.5 px-2 py-0.5 border"></div>
+            </div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span id="cSection" class="font-mono text-[11px] text-neutral-500"></span>
+              <span id="cTimestamp" class="font-mono text-[10px] text-neutral-600"></span>
+            </div>
+          </div>
+          <span id="cPacketId" class="font-mono text-[10px] text-neutral-700"></span>
+        </div>
+
+        <!-- Telemetry Data Matrix -->
+        <div class="grid grid-cols-3 gap-3">
+          <div class="bg-[#111111] border border-[#1f1f1f] p-3">
+            <div class="text-[9px] text-neutral-600 uppercase tracking-wider mb-1">Temperature</div>
+            <div class="font-mono text-[20px] font-bold text-white" id="cTemp"></div>
+          </div>
+          <div class="bg-[#111111] border border-[#1f1f1f] p-3">
+            <div class="text-[9px] text-neutral-600 uppercase tracking-wider mb-1">Deflection</div>
+            <div class="font-mono text-[20px] font-bold text-white" id="cDefl"></div>
+          </div>
+          <div class="bg-[#111111] border border-[#1f1f1f] p-3">
+            <div class="text-[9px] text-neutral-600 uppercase tracking-wider mb-1">Clearance</div>
+            <div class="font-mono text-[20px] font-bold text-white" id="cDist"></div>
+          </div>
+        </div>
+
+        <!-- RAG Action Zone -->
+        <div id="ragZone">
+          <button id="ragExecBtn" class="w-full py-3 bg-[#1f1f1f] border border-[#2a2a2a] text-white text-[11px] font-mono font-semibold tracking-wide uppercase hover:bg-[#2d2d2d] transition-colors cursor-pointer select-none">
+            Execute Automated Regulatory Analysis
+          </button>
+        </div>
+
+        <!-- Terminal Output -->
+        <div id="termBlock" class="hidden">
+          <div class="text-[9px] text-neutral-600 uppercase tracking-wider mb-1.5">Terminal Output</div>
+          <div id="termOutput" class="bg-[#0a0a0a] border border-[#1f1f1f] p-4 font-mono text-[11px] leading-[1.7] text-neutral-500 max-h-[200px] overflow-y-auto scrollbar-thin"></div>
+        </div>
+
+        <!-- Compliance Report -->
+        <div id="reportBlock" class="hidden">
+          <div class="text-[9px] text-neutral-600 uppercase tracking-wider mb-1.5">Compliance Report</div>
+          <div id="reportContent" class="bg-[#0a0a0a] border border-[#1f1f1f] p-5 font-mono report-block"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = 'http://localhost:8000';
+const POLL_MS = 3000;
+
+let alertsMap = new Map();
+let selectedId = null;
+let ragCache = {};
+let isAnalyzing = false;
+
+function relTime(ts) {
+  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (d < 5) return 'just now';
+  if (d < 60) return d + 's ago';
+  if (d < 3600) return Math.floor(d / 60) + 'm ago';
+  if (d < 86400) return Math.floor(d / 3600) + 'h ago';
+  return Math.floor(d / 86400) + 'd ago';
+}
+
+function statusColor(s) {
+  return { NOMINAL: '#22c55e', CAUTION: '#f59e0b', CRITICAL: '#ef4444' }[s] || '#22c55e';
+}
+
+function feedCardHTML(a) {
+  const c = statusColor(a.status);
+  const isCrit = a.status === 'CRITICAL';
+  const sel = selectedId === a.id ? ' selected' : '';
+  return `<div class="feed-card fade-in bg-[#111111] border border-[#1f1f1f] border-l-2 p-3${sel}" style="border-left-color:${c};" data-id="${a.id}" onclick="selectAlert(${a.id})">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-mono text-[10px] text-neutral-600">#${a.id}</span>
+      <div class="flex items-center gap-1.5">
+        <div class="w-[5px] h-[5px] rounded-full${isCrit ? ' pulse-critical' : ''}" style="background:${c};${a.status === 'CAUTION' ? 'box-shadow:0 0 4px ' + c : ''}"></div>
+        <span class="font-mono text-[10px] font-semibold" style="color:${c};">${a.status}</span>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 mb-2">
+      <div><div class="text-[9px] text-neutral-600">TEMP</div><div class="font-mono text-[12px] text-white">${a.temperature_c.toFixed(1)}<span class="text-neutral-600 text-[9px]">C</span></div></div>
+      <div><div class="text-[9px] text-neutral-600">DEFL</div><div class="font-mono text-[12px] text-white">${a.deflection_pct.toFixed(1)}<span class="text-neutral-600 text-[9px]">%</span></div></div>
+      <div><div class="text-[9px] text-neutral-600">DIST</div><div class="font-mono text-[12px] text-white">${a.distance_cm.toFixed(1)}<span class="text-neutral-600 text-[9px]">cm</span></div></div>
+    </div>
+    <div class="flex items-center justify-between">
+      <span class="font-mono text-[9px] text-neutral-700">${a.track_section}</span>
+      <span class="font-mono text-[9px] text-neutral-700">${relTime(a.timestamp)}</span>
+    </div>
+  </div>`;
+}
+
+function setApiStatus(ok) {
+  const dot = document.getElementById('apiDot');
+  const lbl = document.getElementById('apiLabel');
+  dot.className = 'w-[7px] h-[7px] rounded-full ' + (ok ? 'bg-status-nominal' : 'bg-status-critical');
+  lbl.textContent = ok ? 'SYSTEM NOMINAL' : 'API UNREACHABLE';
+  lbl.className = 'font-mono text-[10px] ' + (ok ? 'text-status-nominal' : 'text-status-critical');
+}
+
+async function poll() {
+  try {
+    const r = await fetch(API + '/api/alerts?limit=40', { mode: 'cors' });
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const alerts = d.alerts || [];
+    setApiStatus(true);
+    document.getElementById('alertCounter').textContent = alerts.length + ' alerts loaded';
+    document.getElementById('pollStamp').textContent = new Date().toLocaleTimeString();
+
+    if (!alerts.length) {
+      document.getElementById('feedList').innerHTML = '';
+      document.getElementById('feedEmpty').classList.remove('hidden');
+      document.getElementById('feedEmpty').classList.add('flex');
+      return;
+    }
+    document.getElementById('feedEmpty').classList.add('hidden');
+
+    const newMap = new Map();
+    alerts.forEach(a => newMap.set(a.id, a));
+
+    const list = document.getElementById('feedList');
+    const prevIds = new Set(alertsMap.keys());
+    const nextIds = new Set(newMap.keys());
+
+    // Remove gone
+    prevIds.forEach(id => {
+      if (!nextIds.has(id)) {
+        const el = list.querySelector(`[data-id="${id}"]`);
+        if (el) el.remove();
+      }
+    });
+
+    // Detect new IDs
+    const brandNew = [];
+    nextIds.forEach(id => { if (!prevIds.has(id)) brandNew.push(id); });
+
+    // Update existing card data silently (don't rebuild DOM to preserve selection state)
+    nextIds.forEach(id => {
+      if (prevIds.has(id)) {
+        const old = alertsMap.get(id);
+        const cur = newMap.get(id);
+        if (JSON.stringify(old) !== JSON.stringify(cur)) {
+          const el = list.querySelector(`[data-id="${id}"]`);
+          if (el) {
+            el.style.borderLeftColor = statusColor(cur.status);
+          }
+        }
+      }
+    });
+
+    // Insert new at top
+    brandNew.sort((a, b) => b - a);
+    brandNew.forEach(id => {
+      const a = newMap.get(id);
+      const tmp = document.createElement('div');
+      tmp.innerHTML = feedCardHTML(a);
+      const card = tmp.firstElementChild;
+      list.insertBefore(card, list.firstChild);
+    });
+
+    // First load: render all
+    if (alertsMap.size === 0 && brandNew.length === 0 && alerts.length > 0) {
+      list.innerHTML = alerts.map(a => feedCardHTML(a)).join('');
+    }
+
+    alertsMap = newMap;
+
+    // Update relative timestamps on existing cards
+    list.querySelectorAll('.feed-card').forEach(card => {
+      const id = parseInt(card.dataset.id);
+      const a = alertsMap.get(id);
+      if (!a) return;
+      const spans = card.querySelectorAll('.font-mono.text-\\[9px\\]');
+      if (spans.length >= 2) spans[spans.length - 1].textContent = relTime(a.timestamp);
+    });
+
+    // Auto-select first if nothing selected
+    if (selectedId === null && alerts.length > 0) {
+      selectAlert(alerts[0].id);
+    }
+
+    // Refresh right pane data if selected alert updated
+    if (selectedId && newMap.has(selectedId)) {
+      populateConsole(newMap.get(selectedId));
+    }
+
+  } catch (e) {
+    setApiStatus(false);
+    console.error('Poll failed:', e);
+  }
+}
+
+function selectAlert(id) {
+  selectedId = id;
+  document.querySelectorAll('.feed-card').forEach(c => {
+    c.classList.toggle('selected', parseInt(c.dataset.id) === id);
+  });
+
+  const a = alertsMap.get(id);
+  if (!a) return;
+
+  document.getElementById('consoleEmpty').classList.add('hidden');
+  document.getElementById('consoleActive').classList.remove('hidden');
+  populateConsole(a);
+
+  // Restore cached RAG results
+  const term = document.getElementById('termBlock');
+  const report = document.getElementById('reportBlock');
+  const termOut = document.getElementById('termOutput');
+  const reportOut = document.getElementById('reportContent');
+
+  if (ragCache[id]) {
+    term.classList.remove('hidden');
+    termOut.innerHTML = ragCache[id].termLog;
+    if (ragCache[id].report) {
+      report.classList.remove('hidden');
+      reportOut.innerHTML = ragCache[id].report;
+    } else {
+      report.classList.add('hidden');
+    }
+    document.getElementById('ragExecBtn').style.display = 'none';
+  } else {
+    term.classList.add('hidden');
+    report.classList.add('hidden');
+    termOut.innerHTML = '';
+    reportOut.innerHTML = '';
+    const btn = document.getElementById('ragExecBtn');
+    btn.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Execute Automated Regulatory Analysis';
+    btn.classList.remove('opacity-50');
+  }
+}
+
+function populateConsole(a) {
+  const c = statusColor(a.status);
+  document.getElementById('cAlertId').textContent = '#' + a.id;
+
+  const badge = document.getElementById('cStatusBadge');
+  badge.style.borderColor = c;
+  badge.innerHTML = `<div class="w-[5px] h-[5px] rounded-full${a.status==='CRITICAL'?' pulse-critical':''}" style="background:${c};"></div>
+    <span class="font-mono text-[10px] font-semibold" style="color:${c};">${a.status}</span>`;
+
+  document.getElementById('cSection').textContent = a.track_section;
+  document.getElementById('cTimestamp').textContent = relTime(a.timestamp) + ' / ' + new Date(a.timestamp).toLocaleString();
+  document.getElementById('cPacketId').textContent = 'PKT ' + a.packet_id;
+
+  document.getElementById('cTemp').innerHTML = a.temperature_c.toFixed(1) + '<span class="text-neutral-600 text-[11px] ml-0.5">C</span>';
+  document.getElementById('cDefl').innerHTML = a.deflection_pct.toFixed(1) + '<span class="text-neutral-600 text-[11px] ml-0.5">%</span>';
+  document.getElementById('cDist').innerHTML = a.distance_cm.toFixed(1) + '<span class="text-neutral-600 text-[11px] ml-0.5">cm</span>';
+}
+
+// Terminal line helper
+function termLine(container, text, color) {
+  const ln = document.createElement('div');
+  ln.style.color = color || '#6b7280';
+  ln.innerHTML = '<span class="text-neutral-700 mr-1">&gt;</span>' + text;
+  container.appendChild(ln);
+  container.scrollTop = container.scrollHeight;
+  return ln;
+}
+
+const RAG_STEPS = [
+  'Vectorizing sensor payload into 384-dim embedding space...',
+  'Querying RDSO knowledge base via cosine similarity search...',
+  'Retrieving top 3 matched regulation chunks...',
+  'Opening stream to Ollama llama3.2:3b...',
+];
+
+async function executeRAG() {
+  if (isAnalyzing || !selectedId) return;
+  isAnalyzing = true;
+
+  const btn = document.getElementById('ragExecBtn');
+  btn.disabled = true;
+  btn.textContent = 'ANALYZING...';
+  btn.classList.add('opacity-50');
+
+  const term = document.getElementById('termBlock');
+  const termOut = document.getElementById('termOutput');
+  const report = document.getElementById('reportBlock');
+  const reportOut = document.getElementById('reportContent');
+
+  term.classList.remove('hidden');
+  termOut.innerHTML = '';
+  report.classList.add('hidden');
+  reportOut.innerHTML = '';
+
+  const ts = () => new Date().toLocaleTimeString();
+  termLine(termOut, `[${ts()}] Initiating regulatory analysis for alert #${selectedId}`, '#9ca3af');
+
+  // Stream progress steps
+  for (let i = 0; i < RAG_STEPS.length; i++) {
+    await new Promise(r => setTimeout(r, 800));
+    const cursor = termLine(termOut, RAG_STEPS[i], '#f59e0b');
+    cursor.classList.add('terminal-cursor');
+    if (i > 0) {
+      const prev = termOut.children[termOut.children.length - 2];
+      if (prev) prev.classList.remove('terminal-cursor');
+    }
+  }
+  const lastStep = termOut.lastElementChild;
+  if (lastStep) lastStep.classList.remove('terminal-cursor');
+
+  termLine(termOut, `[${ts()}] POST ${API}/api/alerts/${selectedId}/analyze (streaming)`, '#6b7280');
+
+  try {
+    const r = await fetch(`${API}/api/alerts/${selectedId}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      mode: 'cors',
+    });
+
+    if (!r.ok) {
+      throw new Error('HTTP ' + r.status + ': ' + (await r.text()));
+    }
+
+    // Show report container immediately for streaming
+    report.classList.remove('hidden');
+    reportOut.innerHTML = '<span class="text-neutral-600 text-[10px]">Receiving tokens...</span>';
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let rawText = '';
+    let metaReceived = false;
+    let buffer = '';
+    let tokenCount = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete lines (NDJSON: one JSON object per line)
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Keep incomplete last line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+
+        if (msg.type === 'meta') {
+          metaReceived = true;
+          termLine(termOut, `[${ts()}] Stream opened. ${msg.matched_documents} knowledge base chunks matched.`, '#22c55e');
+          reportOut.innerHTML = '';
+          continue;
+        }
+
+        if (msg.type === 'token') {
+          rawText += msg.text;
+          tokenCount++;
+
+          // Re-render markdown every 8 tokens for performance
+          if (tokenCount % 8 === 0 || msg.text.includes('\n')) {
+            reportOut.innerHTML = highlightRDSO(renderMd(rawText));
+            reportOut.scrollTop = reportOut.scrollHeight;
+          }
+          continue;
+        }
+
+        if (msg.type === 'done') {
+          // Final render with full text
+          reportOut.innerHTML = highlightRDSO(renderMd(rawText));
+          termLine(termOut, `[${ts()}] Stream complete. ${tokenCount} tokens received.`, '#22c55e');
+          break;
+        }
+
+        if (msg.type === 'error') {
+          throw new Error(msg.detail || 'Unknown backend error');
+        }
+      }
+    }
+
+    // Handle case where stream ends without explicit 'done' (flush remaining)
+    if (rawText && tokenCount > 0) {
+      reportOut.innerHTML = highlightRDSO(renderMd(rawText));
+    }
+
+    // Cache
+    ragCache[selectedId] = {
+      termLog: termOut.innerHTML,
+      report: reportOut.innerHTML,
+    };
+
+    btn.style.display = 'none';
+
+  } catch (e) {
+    termLine(termOut, `[${ts()}] FAILED: ${e.message}`, '#ef4444');
+    btn.disabled = false;
+    btn.textContent = 'Retry Regulatory Analysis';
+    btn.classList.remove('opacity-50');
+
+    ragCache[selectedId] = { termLog: termOut.innerHTML, report: null };
+  } finally {
+    isAnalyzing = false;
+  }
+}
+
+function renderMd(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/^\* (.*)$/gm, '<li style="list-style:disc;margin-left:1rem;">$1</li>')
+    .replace(/^\d+\. (.*)$/gm, '<li style="list-style:decimal;margin-left:1rem;">$1</li>')
+    .replace(/\n/g, '<br>');
+}
+
+function highlightRDSO(html) {
+  return html
+    .replace(/(RDSO[^<]{0,80}?(?:Circular|Section|Standard|Manual|Guideline)[^<]{0,40}?)(?=<|$)/gi,
+      '<span class="rdso-citation">$1</span>')
+    .replace(/(Safety Circular[^<]{0,60}?)(?=<|$)/gi,
+      '<span class="rdso-citation">$1</span>')
+    .replace(/(Railways Act[^<]{0,60}?)(?=<|$)/gi,
+      '<span class="rdso-citation">$1</span>')
+    .replace(/(Indian Railways[^<]{0,60}?(?:Manual|Standard|Circular)[^<]{0,30}?)(?=<|$)/gi,
+      '<span class="rdso-citation">$1</span>');
+}
+
+// Wire up
+document.getElementById('ragExecBtn').addEventListener('click', executeRAG);
+
+// Boot
+poll();
+setInterval(poll, POLL_MS);
+</script>
 </body>
 </html>
+
