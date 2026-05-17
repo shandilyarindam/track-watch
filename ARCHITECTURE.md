@@ -1,141 +1,51 @@
-# Architecture
+# Technical Architecture & Systems Specification
 
-## System Topology
+## Comprehensive System Topology
 
 ```mermaid
 graph TD
-    SN["Sensor Nodes<br/>ESP32-S3 + LM35 + Flex + HC-SR04"] -->|"ESP-NOW<br/>Channel 11, no encryption"| FG
-
-    subgraph "Fog Gateway (ESP32-S3)"
-        C0["Core 0<br/>ESP-NOW ISR + xQueueSend"]
-        C1["Core 1<br/>xQueueReceive + threshold eval + HTTP POST"]
-        Q[("FreeRTOS Queue<br/>depth=10")]
-        C0 --> Q --> C1
+    subgraph Edge Layer ["Hardware Node Network"]
+        A["Flex / Deflection Strain Sensor"] -->|"Analog Voltage Rails"| C["ESP32 Sensor Node"]
+        B["Ultrasonic Transceiver Unit"] -->|"Pulse Width Modulation"| C
+        C -->|"ESP-NOW Broadcast Ch 11 Layer-2 Frame"| D["ESP32-S3 Fog Gateway Node"]
     end
 
-    FG --> C0
-
-    C1 -->|"POST /api/telemetry<br/>WiFi STA"| API
-
-    subgraph "Backend (localhost:8000)"
-        API["FastAPI + uvicorn"]
-        EMB["SentenceTransformers<br/>all-MiniLM-L6-v2<br/>384-dim"]
-        LLM["Ollama<br/>llama3.2:3b<br/>local inference"]
+    subgraph Fog Layer ["Gateway Core Allocation"]
+        D -->|"Core 0 Atomic Intercept Loop"| E["FreeRTOS Queue Buffer"]
+        E -->|"Core 1 Worker Dequeue Process"| F["Wi-Fi Station Connection Interface"]
     end
 
-    API --> DB[("Supabase<br/>PostgreSQL + pgvector")]
-    API --> EMB
-    API --> LLM
-
-    DASH["Dashboard<br/>polls GET /api/alerts"] -->|"POST /api/alerts/id/analyze"| API
-    DB -->|"RPC match_railway_knowledge"| API
-
-    C1 -.->|"WiFi down: buffer in SPIFFS<br/>retry next cycle"| C1
-
-    style SN fill:#0a0a0a,stroke:#22c55e
-    style C0 fill:#0a0a0a,stroke:#f59e0b
-    style C1 fill:#0a0a0a,stroke:#f59e0b
-    style API fill:#0a0a0a,stroke:#22c55e
-    style LLM fill:#0a0a0a,stroke:#ef4444
-```
-
-## Telemetry Ingestion Sequence
-
-```mermaid
-sequenceDiagram
-    participant SN as Sensor Node (ESP32-S3)
-    participant C0 as Fog Core 0 (ESP-NOW ISR)
-    participant Q as FreeRTOS Queue
-    participant C1 as Fog Core 1 (HTTP Task)
-    participant API as FastAPI
-    participant DB as Supabase
-
-    SN->>C0: ESP-NOW packet [counter, temp, flex, dist, motion]
-    C0->>Q: xQueueSend (non-blocking)
-    Note over C0: Drops packet on queue-full
-
-    C1->>Q: xQueueReceive (blocking)
-    C1->>C1: Clean + scale sensor values, evaluate thresholds
-
-    alt WiFi connected
-        C1->>API: POST /api/telemetry (JSON)
-        API->>DB: INSERT track_alerts
-        DB-->>API: record_id
-        API-->>C1: 201 Created
-    else WiFi down
-        C1->>C1: Buffer in SPIFFS, retry next cycle
+    subgraph Cloud Data Layer ["FastAPI Infrastructure"]
+        F -->|"HTTP POST /api/telemetry"| G["FastAPI App Gateway"]
+        G -->|"Write Relational Ingestion Row"| H[("Supabase PostgreSQL")]
+        I["Web Frontend UI Console"] -->|"HTTP GET /api/alerts Live Poll"| G
+        I -->|"HTTP POST /api/alerts/id/analyze Trigger"| G
     end
+
+    subgraph Local Inference Layer ["RAG Pipeline Topology"]
+        G -->|"Convert Dynamic String to Matrix Tensor"| J["all-MiniLM-L6-v2 Model"]
+        J -->|"Generate 384-Dim Coordinate Array"| K["pgvector Distance Function"]
+        H -->|"Execute Supabase Remote Procedure Call"| K
+        K -->|"Inject Top 3 Matched Document Paragraphs"| L["Context Contextualizer Engine"]
+        L -->|"Execute Token Matrix Ingestion"| M["Ollama Llama 3.2 3B Process"]
+        M -->|"Pipe Chunked Line NDJSON Stream"| G
+    end
+
+    style C fill:#1a1a1a,stroke:#ef4444,stroke-width:1px
+    style D fill:#1a1a1a,stroke:#f59e0b,stroke-width:1px
+    style G fill:#111,stroke:#22c55e,stroke-width:2px
+    style M fill:#1a1a1a,stroke:#22c55e,stroke-width:1px
 ```
 
-## RAG Analysis Pipeline
+## Hardware Network Concurrency Protocol
 
-```mermaid
-flowchart TD
-    A["POST /api/alerts/id/analyze"] --> B{Alert exists?}
-    B -->|No| X[404]
-    B -->|Yes| C[Build NL query from telemetry values]
-    C --> D["Encode query (SentenceTransformers 384-dim)"]
-    D --> E["RPC match_railway_knowledge (cosine similarity, top-3)"]
-    E --> F{Chunks found?}
-    F -->|No| G[Use empty context]
-    F -->|Yes| H["Format context blocks with doc name + similarity score"]
-    G --> I
-    H --> I[Construct system + user prompt]
-    I --> J["POST to Ollama /api/generate (llama3.2:3b, temp=0.4)"]
-    J --> K{Ollama responds?}
-    K -->|Timeout| T[504 Gateway Timeout]
-    K -->|Error| U[502 Bad Gateway]
-    K -->|OK| L["Return streaming NDJSON (alert_id, query, matched_documents, tokens)"]
+To resolve the physical hardware single-radio constraint on the ESP32 architecture—where switching between Wi-Fi station mode and connectionless ESP-NOW channels drops active data frames—the gateway utilizes FreeRTOS asymmetric multitasking tasks pinned explicitly to independent hardware cores:
 
-    style X fill:#450a0a,stroke:#ef4444
-    style T fill:#450a0a,stroke:#ef4444
-    style U fill:#450a0a,stroke:#ef4444
-```
+**Core 0 (Atomic High-Priority Task):** Binds permanently to Wi-Fi Channel 11, intercepting raw incoming Layer-2 ESP-NOW frames from remote nodes within an execution cycle and pushing them directly into a thread-safe memory queue block.
 
-## Data Contracts
+**Core 1 (Background Worker Task):** Monitors the queue allocation size, switches internal radio state registers to interact safely with local network routers, and dequeues frames to push them upstream via asynchronous HTTP client routines.
 
-### Fog Node to FastAPI: POST /api/telemetry
-
-```json
-{
-  "packet_id": 1024,
-  "section": "KM-42-DELHI",
-  "temperature": 32.4,
-  "deflection": 12.5,
-  "distance": 31.8,
-  "status": "CAUTION"
-}
-```
-
-| Field | Type | Required | Valid Range |
-|-------|------|----------|-------------|
-| packet_id | bigint | yes | >= 0 |
-| section | text | no | default: "KM-42-DELHI" |
-| temperature | double precision | yes | -40.0 to 125.0 |
-| deflection | double precision | yes | 0.0 to 100.0 |
-| distance | double precision | yes | 0.0 to 400.0 |
-| status | text | no | NOMINAL, CAUTION, CRITICAL |
-| created_at | timestamptz | no | auto-generated if omitted |
-
-### FastAPI Analysis Response: POST /api/alerts/{id}/analyze
-
-```json
-{
-  "alert_id": 16,
-  "query": "Railway track alert on section KM-42-DELHI...",
-  "matched_documents": 3,
-  "llm_analysis": "**Maintenance Analysis...**"
-}
-```
-
-| Error | Code | Cause |
-|-------|------|-------|
-| Alert not found | 404 | ID missing from track_alerts |
-| Services not ready | 503 | Supabase or embedder not initialized |
-| LLM timeout | 504 | Ollama exceeded 120s |
-| LLM error | 502 | Ollama service failure |
-
-## Database Schema
+## Relational Database Schema Entity Relations
 
 ```mermaid
 erDiagram
@@ -155,4 +65,47 @@ erDiagram
         jsonb metadata
         vector embedding
     }
+```
+
+## Systems Integration Data Contracts
+
+### Ingestion Data Payload Schema (POST /api/telemetry)
+
+```json
+{
+  "packet_id": 142,
+  "section": "KM-42-DELHI",
+  "temperature": 28.5,
+  "deflection": 12.4,
+  "distance": 8.2
+}
+```
+
+### Verification Parameters & Operational Severity Triggers
+
+| Metric Target | Structural Threshold Limit | Evaluated Status Output |
+|---------------|---------------------------|------------------------|
+| Core Rail Temperature | > 60.0°C | CAUTION |
+| Vertical Strain Deflection | 5.0% to 15.0% | CAUTION |
+| Vertical Strain Deflection | > 15.0% | CRITICAL |
+| Lateral Clearance Boundaries | 3.0cm to 10.0cm | CAUTION |
+| Lateral Clearance Boundaries | < 3.0cm | CRITICAL |
+
+### Networked Line-Delimited JSON (NDJSON) RAG Event Stream Interface
+
+Requests targeting `POST /api/alerts/{id}/analyze` output standard `text/event-stream` payloads split strictly across explicit structural text boundaries:
+
+**Phase 1: Meta Initializer Event String**
+```json
+{"type": "meta", "alert_id": 89, "query": "Track safety alert parameters...", "matched_documents": 3}
+```
+
+**Phase 2: Generative Inference Stream Token**
+```json
+{"type": "token", "text": "Severity Assessment: CAUTION..."}
+```
+
+**Phase 3: Stream Terminator Sequence**
+```json
+{"type": "done"}
 ```

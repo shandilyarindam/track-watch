@@ -1,86 +1,91 @@
 # Track-Watch
 
-Edge-to-cloud railway track safety monitoring with RAG-grounded maintenance recommendations.
+An edge-to-cloud railway track structural safety monitoring and automated regulatory compliance validation system.
 
-ESP32-S3 sensor nodes sample temperature (LM35), deflection (flex sensor), and track clearance (HC-SR04) at 1Hz. Packets transmit over ESP-NOW to a dual-core ESP32-S3 fog gateway running FreeRTOS — Core 0 handles ESP-NOW interrupts, Core 1 evaluates thresholds and POSTs anomalies to a FastAPI backend over WiFi. The backend stores telemetry in Supabase (PostgreSQL + pgvector), and on demand, runs a RAG pipeline: embed the alert query with sentence-transformers (all-MiniLM-L6-v2, 384-dim), vector-search RDSO maintenance manuals, and synthesize a grounded maintenance checklist via local Ollama (llama3.2:3b).
+Telemetry data is sampled from physical instrumentation sensors via a standalone edge node, transmitted using layer-2 ESP-NOW protocols to a dual-core gateway, pushed upstream via HTTP POST to a FastAPI application gateway, and persisted in a Supabase PostgreSQL instance. A localized Retrieval-Augmented Generation (RAG) engine transforms structural anomalies into dense text tensors via all-MiniLM-L6-v2, queries adjacent regulatory safety circulars via pgvector similarity matching, and triggers an asynchronous NDJSON token stream from a local Ollama Llama 3.2 3B daemon to render audit-compliant engineering checklists.
 
-## Dependencies
+### Dependencies
 
-- Python 3.13+
-- FastAPI, uvicorn, pydantic, httpx, python-dotenv
-- supabase-py, sentence-transformers
-- Ollama with `llama3.2:3b` pulled
-- Supabase project with pgvector extension enabled
-- Arduino ESP32 board package (ESP32-S3)
-- ESP-NOW, WiFi, HTTPClient (Arduino libraries)
+* Python 3.13
+* Ollama (Llama 3.2 3B Engine)
+* Supabase PostgreSQL (with pgvector extension)
+* Arduino IDE (with ESP32/ESP32-S3 core toolchains)
 
-## Setup
+### Setup
 
-### Hardware
+1. Initialize local database schema tables via Supabase SQL Editor using the data model matrices defined in `ARCHITECTURE.md`.
 
-1. Flash `hardware/sensor-node/sensor-node.ino` to each ESP32-S3 sensor node
-2. Copy `hardware/fog-node/secrets.h.example` to `secrets.h`, fill credentials
-3. Flash `hardware/fog-node/fog-node.ino` to the fog gateway ESP32-S3
-4. All devices must be on ESP-NOW channel 11
+2. Install pinned backend dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
 
-### Backend
+3. Configure local environment variables:
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
 
-1. `cd backend`
-2. `pip install -r requirements.txt`
-3. `cp .env.example .env` — fill Supabase credentials
-4. `ollama pull llama3.2:3b`
-5. `python ingest_docs.py` — seeds RDSO manuals into vector store
-6. `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+4. Populate knowledge directories and execute vector store ingestion seeder:
+   ```bash
+   python backend/ingest_docs.py
+   ```
 
-### Dashboard
+5. Compile and flash firmware binaries to microcontrollers over native serial interfaces:
+   ```
+   Compile hardware/sensor-node/sensor-node.ino -> Target: ESP32 Dev Module
+   Compile hardware/fog-node/fog-node.ino -> Target: ESP32-S3 Dev Module
+   ```
 
-1. `cd dashboard`
-2. `python -m http.server 3000`
-3. Open `http://localhost:3000`
+6. Initialize local AI inference engine daemon:
+   ```bash
+   ollama run llama3.2:3b
+   ```
 
-## Architecture
+7. Launch core FastAPI backend application server:
+   ```bash
+   python backend/main.py
+   ```
+
+8. Launch the dashboard interface by opening `dashboard/index.html` in a standard browser environment.
+
+### Architecture
 
 ```mermaid
-graph TD
-    SN1["Sensor Node 1<br/>ESP32-S3 + LM35 + Flex + HC-SR04"] -->|ESP-NOW| FG
-    SN2["Sensor Node 2<br/>ESP32-S3"] -->|ESP-NOW| FG
-    SNn["Sensor Node N<br/>ESP32-S3"] -->|ESP-NOW| FG
+sequenceDiagram
+    autonumber
+    participant S as Sensor Node (ESP32)
+    participant G as Fog Gateway (ESP32-S3)
+    participant API as Core API (FastAPI)
+    participant DB as Vector DB (Supabase)
+    participant LLM as Local LLM (Ollama)
 
-    FG["Fog Gateway<br/>ESP32-S3 Dual-Core FreeRTOS"] -->|"HTTP POST /api/telemetry<br/>WiFi"| API
+    note over S,G: ESP-NOW Protocol (Channel 11 Layer 2)
+    S->>G: Broadcast Raw Telemetry Packet Frame
+    alt FreeRTOS Queue Push Success
+        G->>G: Core 0: Intercept packet, push to thread-safe internal queue
+    else Queue Overflow / Buffer Collision
+        G->>G: Drop frame, increment hardware packet loss tracking register
+    end
+    G->>API: Core 1: Dequeue, switch radio state, HTTP POST /api/telemetry
+    alt Ingestion Pathway Validated
+        API->>DB: Insert transactional record into track_alerts table
+        API-->>G: HTTP 201 Created
+    else Schema Validation Failure
+        API-->>G: HTTP 422 Unprocessable Entity
+    end
 
-    API["FastAPI Backend<br/>Python + uvicorn"] --> DB[("Supabase<br/>PostgreSQL + pgvector")]
-    API --> EMB["SentenceTransformers<br/>all-MiniLM-L6-v2"]
-    API --> LLM["Ollama<br/>llama3.2:3b"]
-
-    DB -->|"Vector search<br/>match_railway_knowledge"| API
-    EMB -->|384-dim embedding| API
-    LLM -->|Maintenance checklist| API
-
-    DASH["Dashboard<br/>Tailwind + Vanilla JS"] -->|"GET /api/alerts<br/>POST /api/alerts/id/analyze"| API
-
-    style FG fill:#1e293b,stroke:#f59e0b
-    style API fill:#1e293b,stroke:#22c55e
-    style LLM fill:#1e293b,stroke:#ef4444
+    note over API,LLM: Asynchronous NDJSON RAG Execution Loop
+    API->>DB: RPC match_railway_knowledge() (Cosine Distance Metrics)
+    DB-->>API: Return top 3 matched RDSO manual text blocks
+    API->>LLM: Stream context-grounded system prompt (stream=true)
+    loop Token-by-Token Tokenization
+        LLM-->>API: Yield incremental markdown text token strings
+        API-->>G: Pipe streaming chunk line ({"type":"token", "text":"..."})
+    end
 ```
 
-## API
+### Known Limitations
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/telemetry` | Ingest telemetry from fog node |
-| GET | `/api/alerts?limit=20` | List recent alerts (newest first) |
-| POST | `/api/alerts/{id}/analyze` | Run RAG pipeline on a specific alert |
-| GET | `/health` | Liveness probe |
-
-## Known Limitations
-
-- ESP-NOW has no encryption. Application-layer encryption needed for production.
-- LLM inference takes 30-90s on CPU. No streaming — the dashboard fakes progress steps.
-- Single track section (`KM-42-DELHI`) hardcoded in fog node firmware.
-- No authentication on the API. Add API key middleware before any real deployment.
-- pgvector similarity search is brute-force on 13 chunks. Fine for prototype, not for 10k+ documents.
-- The flex sensor calibration baseline (330 flat / 150 bent) is specific to the sensor unit used in development.
-
-## Author
-
-Arindam Shandilya — shandilyarindam@gmail.com
+* Prototype edge firmware lacks payload-layer transport encryption over raw ESP-NOW broadcasts.
+* Fixed client-side polling interval increases connection overhead under high client concurrency.
+* Local vector tensor calculations block execution threads if hardware environment lacks active GPU acceleration.
