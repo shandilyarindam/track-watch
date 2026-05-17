@@ -1,0 +1,44 @@
+INDIAN RAILWAYS — SAFETY CIRCULAR 2021/S-07
+TRACK INSPECTION AND EMERGENCY RESPONSE PROCEDURES
+
+1. SCOPE
+This circular applies to all zonal railways and production units for track inspection and emergency response during sensor-triggered alerts.
+
+2. TRACK INSPECTION FREQUENCY
+2.1 Standard inspection cycle: Once per week for Group A routes, twice monthly for Group B and C routes.
+2.2 Enhanced inspection required when automated monitoring systems report CAUTION status for more than 6 consecutive hours.
+2.3 Emergency inspection mandatory within 30 minutes of any CRITICAL alert from IoT monitoring systems.
+
+3. SENSOR THRESHOLD PARAMETERS
+3.1 Temperature: Normal range 20-40°C. Caution above 40°C. Critical above 55°C.
+3.2 Track deflection: Normal below 2%. Caution between 2-5%. Critical above 5%.
+3.3 Clearance distance: Normal above 25cm. Caution between 15-25cm. Critical below 15cm.
+3.4 Motion intrusion: Any detection during non-maintenance hours triggers immediate verification.
+
+4. EMERGENCY RESPONSE PROTOCOL
+4.1 On receiving CRITICAL alert:
+    a) Impose immediate speed restriction of 30 km/h on affected section.
+    b) Notify Section Engineer (SE) and Assistant Divisional Engineer (ADE).
+    c) Deploy emergency patrol within 15 minutes.
+    d) If track defect confirmed, impose traffic block.
+    e) File preliminary report to Divisional Railway Manager (DRM) within 2 hours.
+
+4.2 On receiving CAUTION alert:
+    a) Note the alert parameters and timestamp.
+    b) Schedule inspection within the next maintenance window.
+    c) If multiple CAUTION alerts on same section within 24 hours, treat as CRITICAL.
+
+5. DOCUMENTATION REQUIREMENTS
+5.1 All sensor alerts must be logged in the Section Track Register.
+5.2 Maintenance actions taken must reference the triggering alert ID and sensor values.
+5.3 Monthly trend reports must be submitted to the Chief Track Engineer.
+
+6. BALLAST AND FORMATION MAINTENANCE
+6.1 Ballast contamination exceeding 30% fines requires cleaning or renewal.
+6.2 Formation settlement detected via deflection sensors must be investigated using trial pits.
+6.3 Drainage adequacy must be verified when distance sensors show reduced clearance.
+
+7. RAIL DEFECT MANAGEMENT
+7.1 Any temperature anomaly combined with deflection anomaly requires immediate USFD testing.
+7.2 Rail fracture risk increases when temperature differential exceeds 25°C from stress-free temperature.
+7.3 Weld joints must be specifically inspected when thermal alerts are triggered.

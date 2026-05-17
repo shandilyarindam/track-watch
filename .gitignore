@@ -62,3 +62,16 @@ node_modules/
 # ===============================
 *.hex
 *.elf
+
+# ===============================
+# Backend secrets & model cache
+# ===============================
+backend/.env
+.env
+*.onnx
+sentence-transformers/
+
+# ===============================
+# Hardware firmware secrets
+# ===============================
+**/secrets.h
