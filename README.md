@@ -42,21 +42,21 @@ ESP32-S3 sensor nodes sample temperature (LM35), deflection (flex sensor), and t
 
 ```mermaid
 graph TD
-    SN1[Sensor Node 1<br/>ESP32-S3 + LM35 + Flex + HC-SR04] -->|ESP-NOW| FG
-    SN2[Sensor Node 2<br/>ESP32-S3] -->|ESP-NOW| FG
-    SNn[Sensor Node N<br/>ESP32-S3] -->|ESP-NOW| FG
+    SN1["Sensor Node 1<br/>ESP32-S3 + LM35 + Flex + HC-SR04"] -->|ESP-NOW| FG
+    SN2["Sensor Node 2<br/>ESP32-S3"] -->|ESP-NOW| FG
+    SNn["Sensor Node N<br/>ESP32-S3"] -->|ESP-NOW| FG
 
-    FG[Fog Gateway<br/>ESP32-S3 Dual-Core FreeRTOS] -->|HTTP POST /api/telemetry<br/>WiFi| API
+    FG["Fog Gateway<br/>ESP32-S3 Dual-Core FreeRTOS"] -->|"HTTP POST /api/telemetry<br/>WiFi"| API
 
-    API[FastAPI Backend<br/>Python + uvicorn] --> DB[(Supabase<br/>PostgreSQL + pgvector)]
-    API --> EMB[SentenceTransformers<br/>all-MiniLM-L6-v2]
-    API --> LLM[Ollama<br/>llama3.2:3b]
+    API["FastAPI Backend<br/>Python + uvicorn"] --> DB[("Supabase<br/>PostgreSQL + pgvector")]
+    API --> EMB["SentenceTransformers<br/>all-MiniLM-L6-v2"]
+    API --> LLM["Ollama<br/>llama3.2:3b"]
 
-    DB -->|Vector search<br/>match_railway_knowledge| API
+    DB -->|"Vector search<br/>match_railway_knowledge"| API
     EMB -->|384-dim embedding| API
     LLM -->|Maintenance checklist| API
 
-    DASH[Dashboard<br/>Tailwind + Vanilla JS] -->|GET /api/alerts<br/>POST /api/alerts/id/analyze| API
+    DASH["Dashboard<br/>Tailwind + Vanilla JS"] -->|"GET /api/alerts<br/>POST /api/alerts/id/analyze"| API
 
     style FG fill:#1e293b,stroke:#f59e0b
     style API fill:#1e293b,stroke:#22c55e
